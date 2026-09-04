@@ -61,3 +61,5 @@ backend/alembic.ini.bak
 
 # Docker volumes
 postgres_data/
+
+.forge-permissions.json

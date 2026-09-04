@@ -47,7 +47,21 @@ ARENA_CREATE_EVAL = f"{ARENA_BASE}/nextjs-api/stream/create-evaluation"
 ARENA_POST_EVAL = f"{ARENA_BASE}/nextjs-api/stream/post-to-evaluation"  # + /{id}
 
 # reCAPTCHA
-RECAPTCHA_V3_SITEKEY = "6Led_uYrAAAAAKjxDIF58fgFtX3t8loNAK85bW9I"
+RECAPTCHA_V3_SITEKEY = "6LeTGMcsAAAAALuIlkVwIxaAuZA8VledA6d3Nnb0"
+
+# Fallback models (real arena.ai UUIDs scraped from page)
+FALLBACK_MODELS = [
+    {"id": "019b24bb-5caf-71c3-b854-37d0c7086f21", "publicName": "Max", "capabilities": {"outputCapabilities": ["text"], "inputCapabilities": ["text"]}},
+    {"id": "019c2fac-13de-7550-a751-f5f593c77c72", "publicName": "Claude Opus 4.6", "capabilities": {"outputCapabilities": ["text"], "inputCapabilities": ["text"]}},
+    {"id": "019d9806-5d91-76b3-b353-826cb3193b43", "publicName": "Claude Opus 4.7", "capabilities": {"outputCapabilities": ["text"], "inputCapabilities": ["text"]}},
+    {"id": "019cc544-4848-771d-947a-1121fad1acb4", "publicName": "Gemini 3.1 Pro", "capabilities": {"outputCapabilities": ["text"], "inputCapabilities": ["text"]}},
+    {"id": "019cc5aa-2338-72fd-97dd-853736085a83", "publicName": "GPT-5.4", "capabilities": {"outputCapabilities": ["text"], "inputCapabilities": ["text"]}},
+    {"id": "019e71ea-1e1d-740f-9c2d-dab5869ff108", "publicName": "GPT-5.5 Instant", "capabilities": {"outputCapabilities": ["text"], "inputCapabilities": ["text"]}},
+    {"id": "019f8b06-4fa3-7bbe-9292-691f9feadc3c", "publicName": "Gemini 3.6 Flash", "capabilities": {"outputCapabilities": ["text"], "inputCapabilities": ["text"]}},
+    {"id": "01a00134-44ac-7f9c-b4a7-b720acebaa97", "publicName": "GLM-5.3", "capabilities": {"outputCapabilities": ["text"], "inputCapabilities": ["text"]}},
+    {"id": "019c2f86-74db-7cc3-baa5-6891bebb5999", "publicName": "Claude Opus 4.6 Thinking", "capabilities": {"outputCapabilities": ["text"], "inputCapabilities": ["text"]}},
+    {"id": "019d9808-2b2f-7272-b7ea-0634461e5316", "publicName": "Claude Opus 4.7 Thinking", "capabilities": {"outputCapabilities": ["text"], "inputCapabilities": ["text"]}},
+]
 
 # ============================================================
 # UUIDv7
@@ -59,6 +73,56 @@ def uuid7() -> str:
     u = ts << 80 | (0x7000 | ra) << 64 | (0x8000000000000000 | rb)
     h = f"{u:032x}"
     return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"
+
+
+# ============================================================
+# Fetch models from arena.ai page (HTML scraping)
+# ============================================================
+import re as _re
+
+async def fetch_arena_models():
+    """Scrape initialModels from arena.ai page HTML."""
+    global FALLBACK_MODELS
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            resp = await client.get(f"{ARENA_BASE}/text/direct?model_a=max")
+            if resp.status_code != 200:
+                log.warning(f"Failed to fetch arena.ai page: {resp.status_code}")
+                return
+            html = resp.text
+            if "initialModels" not in html:
+                log.warning("initialModels not found in arena.ai page")
+                return
+            # Extract model JSON - HTML has escaped quotes (\")
+            # Find the initialModels array using escaped quote patterns
+            idx = html.find("initialModels")
+            if idx < 0:
+                return
+            snippet = html[idx:idx+50000]
+            # Match id and publicName with escaped quotes
+            ids = _re.findall(r'\\"id\\":\\"([^\\]+)\\"', snippet)
+            names = _re.findall(r'\\"publicName\\":\\"([^\\]+)\\"', snippet)
+            orgs = _re.findall(r'\\"organization\\":\\"([^\\]+)\\"', snippet)
+            # Also check for text capability
+            text_caps = _re.findall(r'\\"outputCapabilities\\":\{[^}]*\\"text\\":true', snippet)
+            
+            models = []
+            for i in range(min(len(ids), len(names))):
+                models.append({
+                    "id": ids[i],
+                    "publicName": names[i],
+                    "organization": orgs[i] if i < len(orgs) else "",
+                    "capabilities": {"outputCapabilities": ["text"], "inputCapabilities": ["text"]},
+                })
+            
+            FALLBACK_MODELS = models
+            log.info(f"Fetched {len(models)} text models from arena.ai")
+            for m in models[:10]:
+                log.info(f"  {m['publicName']}: {m['id']}")
+            if len(models) > 10:
+                log.info(f"  ... and {len(models)-10} more")
+    except Exception as e:
+        log.error(f"Error fetching arena models: {e}")
 
 
 # ============================================================
@@ -80,7 +144,8 @@ class Store:
 
     @property
     def active(self) -> bool:
-        return self.last_push > 0 and (time.time() - self.last_push < 120)
+        # Active if extension pushed recently, OR if we have cookies manually set
+        return (self.last_push > 0 and (time.time() - self.last_push < 120)) or bool(self.cookies)
 
     def push(self, data: dict):
         self.last_push = time.time()
@@ -167,6 +232,9 @@ class Store:
     def status(self) -> dict:
         now = time.time()
         valid_v3 = [t for t in self.v3_tokens if now - t["ts"] < 120]
+        # Use fallback models if none pushed by extension
+        effective_text = self.text_models if self.text_models else {m["publicName"]: m["id"] for m in FALLBACK_MODELS}
+        effective_image = self.image_models
         return {
             "active": self.active,
             "last_push_ago": round(now - self.last_push, 1) if self.last_push else None,
@@ -174,8 +242,8 @@ class Store:
             "has_v2": bool(self.v2_token and now - self.v2_token["ts"] < 120),
             "has_auth": bool(self.auth_token),
             "has_cf": bool(self.cf_clearance),
-            "text_models": len(self.text_models),
-            "image_models": len(self.image_models),
+            "text_models": len(effective_text),
+            "image_models": len(effective_image),
             "next_actions": list(self.next_actions.keys()),
             "cookies": list(self.cookies.keys()),
         }
@@ -233,6 +301,56 @@ async def extension_status():
     return store.status()
 
 
+@app.post("/api/cookies")
+async def ingest_cookies(request: Request):
+    """Accept cookies directly (no Chrome extension needed).
+
+    POST /api/cookies
+    {
+        "cookies": {
+            "arena-auth-prod-v1.0": "base64-...",
+            "arena-auth-prod-v1.1": "mll...",
+            "cf_clearance": "...",
+            "arena_visit_id": "..."
+        }
+    }
+
+    Split cookies are auto-combined.
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid JSON")
+
+    cookies = data.get("cookies", {})
+    if not cookies:
+        raise HTTPException(400, "Provide 'cookies' dict")
+
+    # Combine split cookies: arena-auth-prod-v1.0 + .1 -> arena-auth-prod-v1
+    split_keys = sorted([k for k in cookies if k.startswith("arena-auth-prod-v1.")])
+    if split_keys:
+        combined = "".join(cookies.pop(k) for k in split_keys)
+        cookies["arena-auth-prod-v1"] = combined
+        log.info(f"Combined {len(split_keys)} split cookies into arena-auth-prod-v1 ({len(combined)} chars)")
+
+    # Extract auth token from cookie if present
+    auth_cookie = cookies.get("arena-auth-prod-v1", "")
+    if auth_cookie:
+        store.auth_token = auth_cookie
+        log.info(f"Set auth_token from cookie ({len(auth_cookie)} chars)")
+
+    # Update cookies
+    store.cookies.update(cookies)
+    store.last_push = time.time()
+
+    return {
+        "status": "ok",
+        "cookies_count": len(store.cookies),
+        "has_auth": bool(store.auth_token),
+        "auth_len": len(store.auth_token),
+    }
+
+
 # ============================================================
 # OpenAI 兼容端点
 # ============================================================
@@ -243,18 +361,13 @@ async def list_models(request: Request):
     all_models = {}
     all_models.update(store.text_models)
     all_models.update(store.image_models)
+    # Use fallback if no extension models
+    if not all_models:
+        all_models = {m["publicName"]: m["id"] for m in FALLBACK_MODELS}
     data = []
     for name in sorted(all_models.keys()):
         data.append({
             "id": name,
-            "object": "model",
-            "created": 0,
-            "owned_by": "arena.ai",
-        })
-    if not data:
-        # 返回一个占位模型
-        data.append({
-            "id": "waiting-for-extension",
             "object": "model",
             "created": 0,
             "owned_by": "arena.ai",
@@ -295,20 +408,29 @@ async def chat_completions(request: Request):
         raise HTTPException(400, "messages is required")
 
     # 检查扩展是否连接
-    if not store.active:
+    if not store.active and not store.cookies:
         raise HTTPException(503, "Extension not connected. Please open arena.ai in Chrome with the extension installed.")
 
     # 解析模型
     model_id = store.text_models.get(model_name) or store.image_models.get(model_name)
     if not model_id:
+        # Try fallback models
+        fallback_map = {m["publicName"]: m["id"] for m in FALLBACK_MODELS}
+        model_id = fallback_map.get(model_name)
+    if not model_id:
         # 尝试模糊匹配
-        for name, mid in {**store.text_models, **store.image_models}.items():
+        all_models = {**store.text_models, **store.image_models}
+        if not all_models:
+            all_models = {m["publicName"]: m["id"] for m in FALLBACK_MODELS}
+        for name, mid in all_models.items():
             if model_name.lower() in name.lower() or name.lower() in model_name.lower():
                 model_id = mid
                 model_name = name
                 break
     if not model_id:
         available = list(store.text_models.keys()) + list(store.image_models.keys())
+        if not available:
+            available = [m["publicName"] for m in FALLBACK_MODELS]
         raise HTTPException(404, f"Model '{model_name}' not found. Available: {available[:20]}")
 
     # 构建 prompt（取最后一条 user 消息）
@@ -367,7 +489,7 @@ async def chat_completions(request: Request):
 
     arena_payload = {
         "id": eval_id,
-        "mode": "direct",
+        "mode": "direct-battle",
         "modelAId": model_id,
         "userMessageId": user_msg_id,
         "modelAMessageId": model_a_msg_id,
@@ -406,7 +528,8 @@ async def chat_completions(request: Request):
         headers["authorization"] = f"Bearer {store.auth_token}"
 
     url = ARENA_CREATE_EVAL
-    log.info(f"Sending to arena.ai: model={model_name}, eval_id={eval_id}, has_v3={bool(v3_token)}, has_v2={bool(v2_token)}")
+    log.info(f"Sending to arena.ai: model={model_name} (id={model_id}), eval_id={eval_id}, has_v3={bool(v3_token)}, has_v2={bool(v2_token)}")
+    log.info(f"Arena payload: {json.dumps(arena_payload, default=str)[:500]}")
 
     if stream:
         return StreamingResponse(
@@ -432,7 +555,8 @@ async def stream_response(url, payload, headers, model_name, eval_id, client_typ
             async with client.stream("POST", url, json=payload, headers=headers) as resp:
                 if resp.status_code != 200:
                     body = await resp.aread()
-                    log.error(f"Arena API error: {resp.status_code} {body[:500]}")
+                    log.error(f"Arena API error: {resp.status_code} {body[:1000]}")
+                    log.error(f"Request headers: {dict(resp.headers)}")
                     error_chunk = {
                         "id": chat_id,
                         "object": "chat.completion.chunk",
@@ -440,7 +564,7 @@ async def stream_response(url, payload, headers, model_name, eval_id, client_typ
                         "model": model_name,
                         "choices": [{
                             "index": 0,
-                            "delta": {"content": f"[Error: Arena API returned {resp.status_code}]"},
+                            "delta": {"content": f"[Error: Arena API returned {resp.status_code}: {body[:200].decode('utf-8', errors='replace')}]"},
                             "finish_reason": "stop",
                         }],
                     }
@@ -682,4 +806,7 @@ if __name__ == "__main__":
     log.info(f"Starting arena2api on port {PORT}")
     log.info(f"OpenAI API: http://localhost:{PORT}/v1")
     log.info("Waiting for Chrome extension to connect...")
+    # Fetch models from arena.ai on startup
+    import asyncio as _asyncio
+    _asyncio.get_event_loop().run_until_complete(fetch_arena_models())
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")

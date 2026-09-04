@@ -6,11 +6,11 @@ import { useCouncilStream } from "@/hooks/useCouncilStream";
 const ALL = ["claude", "chatgpt", "gemini", "deepseek", "qwen", "kimi", "kimi-k3"] as const;
 const LABELS: Record<string, string> = {
   claude: "Claude Sonnet 4",
-  chatgpt: "ChatGPT-5",
-  gemini: "Gemini 2.5 Pro",
+  chatgpt: "GPT-5.5 Instant",
+  gemini: "Gemini 3 Pro",
   deepseek: "DeepSeek V3.1",
-  qwen: "Qwen3 72B",
-  kimi: "Kimi K2.5",
+  qwen: "Qwen3 Max",
+  kimi: "Kimi K2.5 Instant",
   "kimi-k3": "Kimi K3 (preview)",
 };
 

@@ -7,8 +7,10 @@ from app.core.config_maps import to_internal
 
 
 def test_internal_mapping():
-    assert to_internal("claude") == "claude-3-5-sonnet-20241022"
-    assert to_internal("chatgpt") == "gpt-4o-2024-08-06"
+    assert to_internal("claude") == "claude-sonnet-4-20250514"
+    assert to_internal("chatgpt") == "gpt-5.5-instant"
+    assert to_internal("gemini") == "gemini-3-pro"
+    assert to_internal("unknown-model") == "unknown-model"
 
 
 @pytest.mark.asyncio

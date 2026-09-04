@@ -11,7 +11,7 @@
 (function() {
   'use strict';
 
-  var SITEKEY = '6Led_uYrAAAAAKjxDIF58fgFtX3t8loNAK85bW9I';
+  var SITEKEY = '6LeTGMcsAAAAALuIlkVwIxaAuZA8VledA6d3Nnb0';
   var TAG = '[Arena2API]';
 
   // ========== 提取模型列表 ==========
