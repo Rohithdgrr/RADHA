@@ -1,0 +1,94 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: aicouncil-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: aicouncil
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d aicouncil"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: aicouncil-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --save "" --appendonly no
+    profiles: ["with-redis"]
+
+  lmarenabridge:
+    build:
+      context: ./lmarenabridge
+      dockerfile: Dockerfile
+    image: aicouncil-lmarenabridge:latest
+    container_name: aicouncil-bridge
+    restart: unless-stopped
+    environment:
+      LMARENA_TOKEN: ${LMARENA_TOKEN}
+      PORT: 8001
+      BRIDGE_MODE: ${BRIDGE_MODE:-chrome}
+    ports:
+      - "8001:8001"
+    # Mock bridge streams real SSE without token; set BRIDGE_MODE=real and LMARENA_TOKEN valid to use arena.ai
+    # Backend fallback kept for health, but council now always gets streamed responses via mock
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aicouncil-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://admin:password@postgres:5432/aicouncil
+      DATABASE_URL_SYNC: postgresql://admin:password@postgres:5432/aicouncil
+      LMARENA_TOKEN: ${LMARENA_TOKEN}
+      LMARENA_BRIDGE_URL: http://lmarenabridge:8001
+      FRONTEND_ORIGIN: http://localhost:3000
+      SECRET_KEY: ${SECRET_KEY}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      MAX_MODELS_PER_QUERY: ${MAX_MODELS_PER_QUERY:-8}
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-120}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      REDIS_URL: ${REDIS_URL:-}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/__pycache__
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: aicouncil-frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_WEBSOCKET_URL: ws://localhost:8000/ws
+      PORT: 3000
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
+
+volumes:
+  postgres_data:

@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CouncilQueryRequest",
+  "description": "Request body for POST /council/query — validated by Pydantic, OpenAPI sync",
+  "type": "object",
+  "required": ["query", "models"],
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 10000,
+      "description": "User prompt",
+      "examples": ["What is quantum computing?", "Explain RAG vs fine-tuning"]
+    },
+    "models": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["claude", "chatgpt", "gemini", "deepseek", "qwen", "kimi", "grok", "llama"]
+      },
+      "examples": [["claude", "chatgpt", "gemini"]]
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["consensus", "debate", "specialist", "weighted"],
+      "default": "consensus"
+    },
+    "depth": {
+      "type": "string",
+      "enum": ["brief", "standard", "detailed"],
+      "default": "detailed"
+    },
+    "show_reasoning": {
+      "type": "boolean",
+      "default": true
+    },
+    "chairman": {
+      "type": "string",
+      "enum": ["claude", "chatgpt", "gemini", "deepseek", "qwen", "kimi", "grok", "llama"],
+      "default": "claude"
+    }
+  },
+  "examples": [
+    {
+      "query": "What is quantum computing?",
+      "models": ["claude", "chatgpt", "gemini"],
+      "mode": "consensus",
+      "depth": "detailed",
+      "show_reasoning": true,
+      "chairman": "claude"
+    }
+  ]
+}

@@ -1,0 +1,604 @@
+openapi: 3.1.0
+info:
+  title: AI Council API
+  version: 1.0.0
+  description: |
+    Perplexity-style multi-model deliberation. Orchestrates 6+ models via LMArenaBridge,
+    streams via SSE, persists to PostgreSQL.
+    See `docs/BACKEND.md`, `data-model.md`, `research.md` U-01/U-04.
+  contact:
+    name: AI Council Team
+  license:
+    name: MIT
+servers:
+  - url: http://localhost:8000
+    description: Local Docker Compose
+  - url: https://api.ai-council.yourdomain.com
+    description: Production (Vercel+AWS)
+tags:
+  - name: health
+  - name: models
+  - name: council
+  - name: auth
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Health check
+      operationId: healthCheck
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+                version: 1.0.0
+                bridge: connected
+                db: connected
+
+  /models:
+    get:
+      tags: [models]
+      summary: List available models (proxied from LMArenaBridge)
+      operationId: listModels
+      responses:
+        '200':
+          description: Model list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelListResponse'
+              example:
+                models:
+                  - id: claude
+                    display_name: Claude Sonnet 4 (20250514)
+                    internal_id: claude-sonnet-4-20250514
+                    available: true
+                    latency_p50_ms: 1800
+                  - id: chatgpt
+                    display_name: ChatGPT-5 (20250806)
+                    internal_id: gpt-5-20250806
+                    available: true
+                  - id: kimi
+                    display_name: Kimi K2.5 (20250720)
+                    internal_id: kimi-k2.5-20250720
+                    available: true
+                  - id: kimi-k3
+                    display_name: Kimi K3 (20250828) Preview
+                    internal_id: kimi-k3-20250828
+                    available: true
+        '502':
+          $ref: '#/components/responses/BridgeError'
+
+  /council/query:
+    post:
+      tags: [council]
+      summary: Submit council query (SSE stream)
+      description: |
+        Fan-out to selected models, stream events via `text/event-stream`.
+        Auth optional (Bearer JWT). Rate limited: 100/hr anon, 500/hr auth.
+        Body validated 422 if models 2..8 not met.
+        If <2 models succeed, stream ends with `event: error`.
+      operationId: councilQuery
+      security:
+        - bearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CouncilQueryRequest'
+            examples:
+              basic:
+                value:
+                  query: What is quantum computing?
+                  models: [claude, chatgpt, gemini]
+                  mode: consensus
+                  depth: detailed
+                  show_reasoning: true
+                  chairman: claude
+              debate:
+                value:
+                  query: Is AGI near?
+                  models: [claude, chatgpt, deepseek, gemini]
+                  mode: debate
+                  depth: standard
+                  show_reasoning: true
+                  chairman: chatgpt
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE events (see event schemas below)
+              example: |
+                event: model_start
+                data: {"model":"claude","ts":"2026-09-04T00:00:00Z"}
+
+                event: model_stream
+                data: {"model":"claude","delta":"Quantum","ts":"2026-09-04T00:00:01Z"}
+
+                event: model_done
+                data: {"model":"claude","status":"done","latency":2.31,"reasoning":"...","final_answer":"Quantum computing...","confidence":0.92,"token_count":312}
+
+                event: synthesis_start
+                data: {"chairman":"claude","ts":"2026-09-04T00:00:03Z"}
+
+                event: synthesis_stream
+                data: {"delta":"## Answer\nQuantum..."}
+
+                event: done
+                data: {"session_id":"550e8400-e29b-41d4-a716-446655440000","total_latency":18.4,"synthesis":"...","agreements":"...","divergences":"...","unique_insights":["..."]}
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '502':
+          $ref: '#/components/responses/BridgeError'
+
+  /council/session/{session_id}:
+    get:
+      tags: [council]
+      summary: Retrieve past session (full dump)
+      operationId: getSession
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session with responses
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CouncilSessionRead'
+              example:
+                id: 550e8400-e29b-41d4-a716-446655440000
+                user_id: null
+                user_query: What is quantum computing?
+                selected_models: [claude, chatgpt, gemini]
+                chairman_model: claude
+                mode: consensus
+                depth: detailed
+                synthesis: "Quantum computing uses qubits..."
+                agreements: "All agree on superposition..."
+                divergences: "Gemini emphasizes error correction..."
+                unique_insights: ["Photonic qubits — DeepSeek"]
+                total_latency: 18.4
+                status: done
+                created_at: 2026-09-04T00:00:00Z
+                responses:
+                  - model_name: claude
+                    reasoning: "We need to explain..."
+                    final_answer: "Quantum computing..."
+                    confidence: 0.92
+                    latency: 2.31
+                    status: done
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [council]
+      summary: Delete session
+      operationId: deleteSession
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /council/sessions:
+    get:
+      tags: [council]
+      summary: List sessions (history sidebar, paginated)
+      operationId: listSessions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: user_id
+          in: query
+          description: Filter by owner; anon sessions not listed without explicit session_id (privacy)
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Paginated list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CouncilSessionRead'
+
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: Register new user
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              example:
+                access_token: eyJhbGciOi...
+                token_type: bearer
+                user:
+                  id: 123e4567-e89b-12d3-a456-426614174000
+                  email: user@example.com
+                  display_name: Ada
+        '409':
+          description: Email exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Login (returns JWT)
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+      responses:
+        '200':
+          description: JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Bad credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Current user profile
+      operationId: me
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRead'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        version: { type: string }
+        bridge: { type: string, enum: [connected, disconnected] }
+        db: { type: string, enum: [connected, disconnected] }
+
+    ModelId:
+      type: string
+      enum: [claude, chatgpt, gemini, deepseek, qwen, kimi, kimi-k2.5, kimi-k3, grok, llama]
+
+    # Canonical IDs — kimi alias kimi-k3 for Kimi K3 preview (see MODEL_MAP)
+    CouncilMode:
+      type: string
+      enum: [consensus, debate, specialist, weighted]
+      default: consensus
+
+    Depth:
+      type: string
+      enum: [brief, standard, detailed]
+      default: detailed
+
+    CouncilQueryRequest:
+      type: object
+      required: [query, models]
+      properties:
+        query:
+          type: string
+          minLength: 1
+          maxLength: 10000
+          description: User prompt, stripped not whitespace-only
+          example: What is quantum computing?
+        models:
+          type: array
+          minItems: 2
+          maxItems: 8
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ModelId'
+        mode:
+          $ref: '#/components/schemas/CouncilMode'
+        depth:
+          $ref: '#/components/schemas/Depth'
+        show_reasoning:
+          type: boolean
+          default: true
+        chairman:
+          $ref: '#/components/schemas/ModelId'
+          default: claude
+          description: Must be in models or allow-list
+
+    # SSE events are `event: <type>\ndata: <json>\n\n`
+    SSEEvent:
+      type: object
+      required: [event, data]
+      properties:
+        event:
+          type: string
+          enum: [model_start, model_stream, model_done, critique_done, synthesis_start, synthesis_stream, done, error]
+        data:
+          type: object
+
+    ModelStartEvent:
+      type: object
+      required: [model, ts]
+      properties:
+        model: { $ref: '#/components/schemas/ModelId' }
+        ts: { type: string, format: date-time }
+
+    ModelStreamEvent:
+      type: object
+      required: [model, delta, ts]
+      properties:
+        model: { $ref: '#/components/schemas/ModelId' }
+        delta: { type: string }
+        ts: { type: string, format: date-time }
+
+    ModelDoneEvent:
+      type: object
+      required: [model, status, latency, final_answer]
+      properties:
+        model: { $ref: '#/components/schemas/ModelId' }
+        status: { type: string, enum: [done, error, timeout] }
+        latency: { type: number, minimum: 0 }
+        reasoning: { type: string, nullable: true }
+        final_answer: { type: string }
+        confidence: { type: number, minimum: 0, maximum: 1, nullable: true }
+        token_count: { type: integer, nullable: true }
+        error_message: { type: string, nullable: true }
+
+    SynthesisStartEvent:
+      type: object
+      required: [chairman, ts]
+      properties:
+        chairman: { $ref: '#/components/schemas/ModelId' }
+        ts: { type: string, format: date-time }
+
+    SynthesisStreamEvent:
+      type: object
+      required: [delta]
+      properties:
+        delta: { type: string }
+
+    DoneEvent:
+      type: object
+      required: [session_id, total_latency, synthesis]
+      properties:
+        session_id: { type: string, format: uuid }
+        total_latency: { type: number, minimum: 0 }
+        synthesis: { type: string }
+        agreements: { type: string, nullable: true }
+        divergences: { type: string, nullable: true }
+        unique_insights:
+          type: array
+          items: { type: string }
+
+    ModelListResponse:
+      type: object
+      required: [models]
+      properties:
+        models:
+          type: array
+          items:
+            type: object
+            required: [id, available]
+            properties:
+              id: { $ref: '#/components/schemas/ModelId' }
+              display_name: { type: string }
+              internal_id: { type: string, example: claude-3-5-sonnet-20241022 }
+              available: { type: boolean }
+              latency_p50_ms: { type: integer, nullable: true }
+
+    CouncilSessionRead:
+      type: object
+      required: [id, user_query, selected_models, chairman_model, mode, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid, nullable: true }
+        user_query: { type: string }
+        selected_models:
+          type: array
+          items: { $ref: '#/components/schemas/ModelId' }
+        chairman_model: { $ref: '#/components/schemas/ModelId' }
+        mode: { $ref: '#/components/schemas/CouncilMode' }
+        depth: { $ref: '#/components/schemas/Depth' }
+        show_reasoning: { type: boolean }
+        synthesis: { type: string, nullable: true }
+        agreements: { type: string, nullable: true }
+        divergences: { type: string, nullable: true }
+        unique_insights:
+          type: array
+          items: { type: string }
+          nullable: true
+        deliberation_log:
+          type: array
+          items: { type: object }
+          nullable: true
+        total_latency: { type: number, nullable: true }
+        status: { type: string, enum: [running, done, error, partial] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time, nullable: true }
+        responses:
+          type: array
+          items: { $ref: '#/components/schemas/ModelResponseRead' }
+
+    ModelResponseRead:
+      type: object
+      required: [id, session_id, model_name, final_answer, latency, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        session_id: { type: string, format: uuid }
+        model_name: { $ref: '#/components/schemas/ModelId' }
+        reasoning: { type: string, nullable: true }
+        final_answer: { type: string }
+        confidence: { type: number, minimum: 0, maximum: 1, nullable: true }
+        latency: { type: number, minimum: 0 }
+        token_count: { type: integer, nullable: true }
+        status: { type: string, enum: [done, error, timeout] }
+        error_message: { type: string, nullable: true }
+        critique: { type: string, nullable: true }
+        critique_score: { type: number, minimum: 0, maximum: 10, nullable: true }
+        raw_payload: { type: object, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    UserCreate:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, maxLength: 320 }
+        password: { type: string, minLength: 8, maxLength: 128 }
+        display_name: { type: string, maxLength: 100, nullable: true }
+
+    UserRead:
+      type: object
+      required: [id, email, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        display_name: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        last_login: { type: string, format: date-time, nullable: true }
+
+    AuthResponse:
+      type: object
+      required: [access_token, token_type, user]
+      properties:
+        access_token: { type: string }
+        token_type: { type: string, enum: [bearer] }
+        user: { $ref: '#/components/schemas/UserRead' }
+
+    Error:
+      type: object
+      required: [detail]
+      properties:
+        detail: { type: string }
+        code: { type: string, example: VALIDATION_ERROR }
+
+  responses:
+    ValidationError:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    loc: { type: array, items: { type: string } }
+                    msg: { type: string }
+                    type: { type: string }
+              code: { type: string, example: VALIDATION_ERROR }
+    RateLimited:
+      description: Rate limit exceeded (retry after 60s)
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Forbidden (not owner)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    BridgeError:
+      description: LMArenaBridge unavailable/timeout
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            detail: LMArenaBridge timeout after 120s
+            code: BRIDGE_TIMEOUT

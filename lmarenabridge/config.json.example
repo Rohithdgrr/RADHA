@@ -1,0 +1,10 @@
+{
+  "tokens": ["replace_with_arena-auth-prod-v1_base64"],
+  "session_pool": {
+    "claude": ["00000000-0000-4000-a000-000000000001"],
+    "chatgpt": ["00000000-0000-4000-a000-000000000002"]
+  },
+  "mode": "direct_chat",
+  "file_bed_enabled": false,
+  "websocket_port": 8001
+}

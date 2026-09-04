@@ -1,0 +1,63 @@
+# Secrets
+.env
+.env.local
+.env_token.txt
+ENV-TOKEN.txt
+frontend/.env.local
+
+# DB files
+*.db
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+backend/venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/dist/
+.next/
+dist/
+build/
+
+# DB
+postgres_data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Scratch files
+_scratch*.py
+test_write.txt
+_encoded.txt
+
+# Logs
+*.log
+logs/
+
+# Alembic
+backend/alembic.ini.bak
+
+# OpenCode
+.opencode/
+
+# Docker volumes
+postgres_data/

@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ModelResponseRead",
+  "type": "object",
+  "required": ["id","session_id","model_name","final_answer","latency","status","created_at"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "session_id": { "type": "string", "format": "uuid" },
+    "model_name": { "type": "string", "enum": ["claude","chatgpt","gemini","deepseek","qwen","kimi","grok","llama"] },
+    "reasoning": { "type": ["string","null"] },
+    "final_answer": { "type": "string" },
+    "confidence": { "type": ["number","null"], "minimum": 0, "maximum": 1 },
+    "latency": { "type": "number", "minimum": 0 },
+    "token_count": { "type": ["integer","null"], "minimum": 0 },
+    "status": { "type": "string", "enum": ["done","error","timeout"] },
+    "error_message": { "type": ["string","null"] },
+    "critique": { "type": ["string","null"] },
+    "critique_score": { "type": ["number","null"], "minimum": 0, "maximum": 10 },
+    "raw_payload": { "type": ["object","null"] },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

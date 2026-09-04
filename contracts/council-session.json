@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CouncilSessionRead",
+  "type": "object",
+  "required": ["id", "user_query", "selected_models", "chairman_model", "mode", "status", "created_at"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "user_id": { "type": ["string", "null"], "format": "uuid" },
+    "user_query": { "type": "string" },
+    "selected_models": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["claude","chatgpt","gemini","deepseek","qwen","kimi","grok","llama"] }
+    },
+    "chairman_model": { "type": "string", "enum": ["claude","chatgpt","gemini","deepseek","qwen","kimi","grok","llama"] },
+    "mode": { "type": "string", "enum": ["consensus","debate","specialist","weighted"] },
+    "depth": { "type": "string", "enum": ["brief","standard","detailed"] },
+    "show_reasoning": { "type": "boolean" },
+    "synthesis": { "type": ["string","null"] },
+    "agreements": { "type": ["string","null"] },
+    "divergences": { "type": ["string","null"] },
+    "unique_insights": { "type": ["array","null"], "items": { "type": "string" } },
+    "deliberation_log": { "type": ["array","null"], "items": { "type": "object" } },
+    "total_latency": { "type": ["number","null"], "minimum": 0 },
+    "status": { "type": "string", "enum": ["running","done","error","partial"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": ["string","null"], "format": "date-time" },
+    "responses": {
+      "type": "array",
+      "items": { "$ref": "model-response.json" }
+    }
+  }
+}

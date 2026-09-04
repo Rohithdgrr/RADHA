@@ -1,0 +1,161 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink: #070B16;
+  --abyss: #0F1A2E;
+  --glass: rgba(255,255,255,0.07);
+  --glass-strong: rgba(255,255,255,0.10);
+  --edge: rgba(255,255,255,0.14);
+  --edge-faint: rgba(255,255,255,0.06);
+  --fog: #E2E8F0;
+  --mist: #94A3B8;
+}
+
+* {
+  font-variant-ligatures: common-ligatures;
+}
+
+html, body {
+  background: var(--ink);
+  color: var(--fog);
+  font-family: 'Instrument Sans', system-ui, -apple-system, Segoe UI, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Aurora backdrop */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 600px at 18% -10%, rgba(125,211,252,0.18), transparent 60%),
+    radial-gradient(900px 700px at 82% 0%, rgba(196,181,253,0.16), transparent 60%),
+    radial-gradient(1100px 800px at 50% 115%, rgba(56,189,248,0.10), transparent 70%),
+    linear-gradient(180deg, #070B16 0%, #0B1224 45%, #0F1A2E 100%);
+}
+
+.aurora::before {
+  content:"";
+  position:absolute;
+  inset:0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(800px 800px at 50% 20%, black, transparent 75%);
+  pointer-events:none;
+}
+
+.orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(60px);
+  will-change: transform;
+  pointer-events: none;
+}
+.orb--cyan {
+  width: 640px; height: 520px;
+  left: -80px; top: -120px;
+  background: radial-gradient(closest-side, rgba(125,211,252,0.28), transparent);
+  animation: drift 22s ease-in-out infinite alternate;
+}
+.orb--violet {
+  width: 720px; height: 600px;
+  right: -140px; top: -80px;
+  background: radial-gradient(closest-side, rgba(196,181,253,0.22), transparent);
+  animation: drift 28s ease-in-out infinite alternate-reverse;
+}
+.orb--amber {
+  width: 900px; height: 500px;
+  left: 30%; bottom: -180px;
+  background: radial-gradient(closest-side, rgba(252,211,77,0.08), transparent);
+  animation: drift 34s ease-in-out infinite alternate;
+}
+
+@keyframes drift {
+  0% { transform: translate3d(0,0,0) scale(1); }
+  100% { transform: translate3d(28px, 18px, 0) scale(1.05); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orb { animation: none; }
+}
+
+/* Frosted glass primitives */
+.glass {
+  background: rgba(255,255,255,0.06);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  border: 1px solid rgba(255,255,255,0.09);
+  box-shadow:
+    0 8px 32px rgba(0,0,0,0.34),
+    inset 0 1px 0 rgba(255,255,255,0.12),
+    inset 0 -1px 0 rgba(255,255,255,0.04);
+}
+.glass-strong {
+  background: rgba(255,255,255,0.09);
+  backdrop-filter: blur(22px) saturate(1.4);
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+  border: 1px solid rgba(255,255,255,0.11);
+  box-shadow:
+    0 12px 40px rgba(0,0,0,0.42),
+    inset 0 1px 0 rgba(255,255,255,0.15),
+    inset 0 -1px 0 rgba(255,255,255,0.05);
+}
+/* Lightly shining top edge */
+.shine-top {
+  position: relative;
+  overflow: hidden;
+}
+.shine-top::before {
+  content:"";
+  position:absolute;
+  top:0; left:0; right:0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.55), rgba(125,211,252,0.55), rgba(196,181,253,0.5), transparent);
+  opacity: 0.9;
+  pointer-events:none;
+}
+.shine-top::after {
+  content:"";
+  position:absolute;
+  top:0; left:1px; right:1px;
+  height: 28px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.10), transparent);
+  pointer-events:none;
+}
+
+/* Subtle inner glow for hero */
+.hero-glow {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(120deg, rgba(125,211,252,0.18), rgba(196,181,253,0.14), rgba(252,211,77,0.10));
+  filter: blur(14px);
+  opacity: 0.55;
+  z-index: -1;
+  pointer-events:none;
+}
+
+/* Mono labels */
+.mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  letter-spacing: 0.08em;
+}
+
+/* Display */
+.display {
+  font-family: 'Space Grotesk', 'Instrument Sans', sans-serif;
+  letter-spacing: -0.02em;
+}
+
+/* Custom scroll */
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 999px; }
+*::-webkit-scrollbar-track { background: transparent; }
