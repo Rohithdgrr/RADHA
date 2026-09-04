@@ -281,18 +281,19 @@
   });
 
   // ========== 定时任务 ==========
-  // 每 80 秒请求新 token（token 有效期约 2 分钟）
+  // Token 顶满：保持 8 个可用 token（并行 council 一次消耗 N 个）。
+  // 每 5 秒检查一次，不足就申请一个新的（每次响应带回一个 token）。
   setInterval(function() {
     cleanTokens();
-    if (state.v3Tokens.length < 5) {
+    if (state.v3Tokens.length < 8) {
       requestToken();
     }
-  }, 80000);
+  }, 5000);
 
-  // 每 30 秒推送一次
+  // 每 10 秒推送一次（保持 cookies/token 状态新鲜）
   setInterval(function() {
     pushToServer();
-  }, 30000);
+  }, 10000);
 
   // ========== 初始化 ==========
   chrome.storage.local.get(['proxyUrl'], function(result) {

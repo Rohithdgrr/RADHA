@@ -288,7 +288,7 @@ async def extension_push(request: Request):
     except Exception:
         raise HTTPException(400, "Invalid JSON")
     store.push(data)
-    need = len([t for t in store.v3_tokens if time.time() - t["ts"] < 120]) < 3
+    need = len([t for t in store.v3_tokens if time.time() - t["ts"] < 120]) < 6
     return {
         "status": "ok",
         "need_tokens": need,
@@ -300,6 +300,18 @@ async def extension_push(request: Request):
 async def extension_status():
     return store.status()
 
+
+@app.on_event("startup")
+async def _startup_model_refresh():
+    """Arena rotates model UUIDs — re-scrape every 10 min so IDs never go stale."""
+    await fetch_arena_models()
+
+    async def _loop():
+        while True:
+            await asyncio.sleep(600)
+            await fetch_arena_models()
+
+    asyncio.create_task(_loop())
 
 @app.post("/api/cookies")
 async def ingest_cookies(request: Request):
@@ -467,7 +479,19 @@ async def chat_completions(request: Request):
         prompt = "\n".join(history_parts)
 
     # 获取 reCAPTCHA token
+    # Parallel council fan-out drains the pool instantly, so wait for the
+    # extension to mint fresh tokens instead of sending without one (arena
+    # answers tokenless requests with 403 recaptcha validation failed).
     v3_token = store.pop_v3_token()
+    if not v3_token:
+        log.info("Token pool empty, waiting up to 45s for extension to supply one...")
+        deadline = time.time() + 45
+        while time.time() < deadline:
+            await asyncio.sleep(2)
+            v3_token = store.pop_v3_token()
+            if v3_token:
+                log.info("Got waited token, continuing")
+                break
     v2_token = store.pop_v2_token() if not v3_token else None
 
     is_image = model_name in store.image_models
@@ -511,7 +535,7 @@ async def chat_completions(request: Request):
     elif v3_token:
         arena_payload["recaptchaV3Token"] = v3_token
     else:
-        log.warning("No reCAPTCHA token available, sending without token")
+        raise HTTPException(503, "No reCAPTCHA token from extension (is the arena.ai tab open with the extension active?)")
 
     # 构建 headers
     headers = {
